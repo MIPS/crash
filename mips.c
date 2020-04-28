@@ -591,7 +591,7 @@ mips_analyze_function(ulong start, ulong offset,
 {
 	ulong rapos = 0;
 	ulong spadjust = 0;
-	ulong *funcbuf, *ip;
+	uint *funcbuf, *ip;
 	ulong i;
 
 	if (CRASHDEBUG(8))
@@ -603,7 +603,7 @@ mips_analyze_function(ulong start, ulong offset,
 		return;
 	}
 
-	ip = funcbuf = (ulong *)GETBUF(offset);
+	ip = funcbuf = (uint *)GETBUF(offset);
 	if (!readmem(start, KVADDR, funcbuf, offset,
 		     "mips_analyze_function", RETURN_ON_ERROR)) {
 		FREEBUF(funcbuf);
@@ -612,21 +612,23 @@ mips_analyze_function(ulong start, ulong offset,
 	}
 
 	for (i = 0; i < offset; i += 4) {
-		ulong insn = *ip;
-		ulong high = (insn >> 16) & 0xffff;
-		ulong low = insn & 0xffff;
+		uint insn = *ip;
+		uint high = (insn >> 16) & 0xffff;
+		uint low = insn & 0xffff;
 
 		if (CRASHDEBUG(8))
 			fprintf(fp, "insn @ %#lx = %#lx\n", start + i, insn);
 
-		if (high == 0x27bd) { /* ADDIU sp, sp, imm */
+		if (high == 0x27bd ||  /* ADDIU sp, sp, imm */
+			high == 0x67bd) { /* DADDIU sp, sp, imm */
 			if (!(low & 0x8000))
 				break;
 
 			spadjust += 0x10000 - low;
 			if (CRASHDEBUG(8))
 				fprintf(fp, "spadjust = %lu\n", spadjust);
-		} else if (high == 0xafbf) { /* SW RA, imm(SP) */
+		} else if (high == 0xafbf ||	/* SW RA, imm(SP) */
+				high == 0xffbf) { /* SD RA, imm(SP) */
 			rapos = current->sp + low;
 			if (CRASHDEBUG(8))
 				fprintf(fp, "rapos %lx\n", rapos);
@@ -681,6 +683,12 @@ mips_back_trace_cmd(struct bt_info *bt)
 			return;
 
 		symbol = value_search(current.pc, &offset);
+		while (symbol > st->symtable) {
+			if ((symbol->name)[0] != '.' || (symbol->name)[1] != 'L')
+				break;
+			offset += symbol->value - (symbol-1)->value;
+			symbol--;
+		}
 		if (!symbol && !invalid_ok) {
 			error(FATAL, "PC is unknown symbol (%lx)", current.pc);
 			return;
