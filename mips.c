@@ -671,7 +671,7 @@ mips_back_trace_cmd(struct bt_info *bt)
 		previous.pc = current.ra = regs->regs[MIPS_EF_R31];
 	}
 
-	while (INSTACK(current.sp, bt)) {
+	while (current.sp) {
 		struct syment *symbol = NULL;
 		ulong offset;
 
