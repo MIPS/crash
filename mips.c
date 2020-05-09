@@ -773,6 +773,31 @@ mips_back_trace_cmd(struct bt_info *bt)
 				level, current.pc, current.ra, current.sp);
 
 		previous.sp = previous.pc = previous.ra = 0;
+
+		/* Check if the stack has mips_pt_regs_main and mips_pt_regs_cp0
+		   saved from current.sp. This happens when an exception occurs
+		   while running on the irq stack. */
+		if (current.pc == 0 && current.ra == 0) {
+			ulong offset = sizeof(struct mips_pt_regs_main) + sizeof(struct mips_pt_regs_cp0);
+			char *buf = (char *)GETBUF(offset);
+			if (!readmem(current.sp, KVADDR, buf, offset,
+				"mips_back_trace_cmd", RETURN_ON_ERROR)) {
+				FREEBUF(buf);
+			} else {
+				struct mips_pt_regs_main *mains;
+				struct mips_pt_regs_cp0 *cp0;
+				mains = (struct mips_pt_regs_main *)buf;
+				cp0 = (struct mips_pt_regs_cp0 *)&buf[sizeof(struct mips_pt_regs_main)];
+				ulong r29 = mains->regs[29];
+				/* Check if the sp adjustment equals offset */
+				if (r29 == current.sp + offset) {
+					mips_dump_exception_stack(bt, buf);
+					current.sp = r29;
+					current.pc = cp0->cp0_epc;
+				}
+				FREEBUF(buf);
+			}
+		}
 	}
 }
 
