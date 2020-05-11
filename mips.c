@@ -109,6 +109,10 @@ typedef Elf32_Nhdr Elf_Nhdr;
 typedef Elf64_Nhdr Elf_Nhdr;
 #endif
 
+#define MIPS_IRQ_STACK_SIZE	(PAGESIZE() << 1)
+#define MIPS_IRQ_STACK_MASK	(MIPS_IRQ_STACK_SIZE - 1)
+#define MIPS_IRQ_STACK_START	(MIPS_IRQ_STACK_SIZE - 16)
+
 static struct machine_specific mips_machine_specific = { 0 };
 
 /*
@@ -778,6 +782,20 @@ mips_back_trace_cmd(struct bt_info *bt)
 		   saved from current.sp. This happens when an exception occurs
 		   while running on the irq stack. */
 		if (current.pc == 0 && current.ra == 0) {
+			/* If the sp equals the irq stack start, set the sp to
+			   the value on the irq stack start that points to
+			   somewhere on the kernel stack. */
+			if ((current.sp & MIPS_IRQ_STACK_MASK) == MIPS_IRQ_STACK_START) {
+				ulong offset = sizeof(ulong);
+				char *buf = (char *)GETBUF(offset);
+				if (!readmem(current.sp, KVADDR, buf, offset,
+					"mips_back_trace_cmd", RETURN_ON_ERROR)) {
+				} else {
+					current.sp = *(ulong *)buf;
+				}
+				FREEBUF(buf);
+			}
+
 			ulong offset = sizeof(struct mips_pt_regs_main) + sizeof(struct mips_pt_regs_cp0);
 			char *buf = (char *)GETBUF(offset);
 			if (!readmem(current.sp, KVADDR, buf, offset,
@@ -793,6 +811,7 @@ mips_back_trace_cmd(struct bt_info *bt)
 				if (r29 == current.sp + offset) {
 					mips_dump_exception_stack(bt, buf);
 					current.sp = r29;
+					current.ra = mains->regs[31];
 					current.pc = cp0->cp0_epc;
 				}
 				FREEBUF(buf);
