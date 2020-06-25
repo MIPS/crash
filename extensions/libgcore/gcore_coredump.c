@@ -27,6 +27,9 @@ static void fill_psinfo_note(struct elf_note_info *info,
 static void fill_auxv_note(struct elf_note_info *info,
 			   struct task_context *tc,
 			   struct memelfnote *memnote);
+static void fill_files_note(struct elf_note_info *info,
+			   struct task_context *tc,
+			   struct memelfnote *memnote);
 
 #ifdef GCORE_ARCH_COMPAT
 static void compat_fill_prstatus_note(struct elf_note_info *info,
@@ -496,6 +499,11 @@ fill_write_thread_core_info(FILE *fp, struct task_context *tc,
 		info->size += notesize(&memnote);
 		writenote(&memnote, fp, offset);
 		FREEBUF(memnote.data);
+
+		info->fill_files_note(info, dump_tc, &memnote);
+		info->size += notesize(&memnote);
+		writenote(&memnote, fp, offset);
+		FREEBUF(memnote.data);
 	}
 
 	for (i = 1; i < view->n; ++i) {
@@ -537,6 +545,7 @@ static struct elf_note_info *elf_note_info_init(void)
 	info->fill_prstatus_note = fill_prstatus_note;
 	info->fill_psinfo_note = fill_psinfo_note;
 	info->fill_auxv_note = fill_auxv_note;
+	info->fill_files_note = fill_files_note;
 
 	return info;
 }
@@ -915,6 +924,106 @@ compat_fill_auxv_note(struct elf_note_info *info,
 }
 
 #endif /* GCORE_ARCH_COMPAT */
+
+static void
+fill_files_note(struct elf_note_info *info, struct task_context *tc,
+	       struct memelfnote *memnote)
+{
+	ulong mmap, gate_vma, vma, vm_start, vm_end, vm_file, vm_pgoff, dentry, vfsmnt;
+	unsigned count, map_count, size, names_ofs, remaining, n, index;
+	ulong *data, *start_end_ofs;
+	char *name_base, *name_curpos, *file_buf, *mm_cache;
+	char buf[BUFSIZE];
+
+	BZERO(buf, BUFSIZE);
+
+	if (!IS_KVADDR(task_mm(tc->task, FALSE)))
+		return;
+
+	mm_cache = fill_mm_struct(task_mm(CURRENT_TASK(), TRUE));
+	if (!mm_cache)
+		error(FATAL, "The user memory space does not exist.\n");
+
+	mmap = ULONG(mm_cache + OFFSET(mm_struct_mmap));
+	gate_vma = gcore_arch_get_gate_vma();
+
+	/* *Estimated* file count and total data size needed */
+	map_count = count = INT(mm_cache + GCORE_OFFSET(mm_struct_map_count));
+	if (count > UINT_MAX / 64)
+		error(FATAL, "Map count too big.\n");
+	size = count * 64;
+	names_ofs = (2 + 3 * count) * sizeof(data[0]);
+
+	if (size >= ELF_EXEC_PAGESIZE) /* paranoia check */
+		error(FATAL, "Size required for file_note is too big.\n");
+	size = PAGE_ALIGN(size);
+	data = (ulong *)GETBUF(size);
+	BZERO(data, size);
+
+	start_end_ofs = data + 2;
+	name_base = name_curpos = ((char *)data) + names_ofs;
+	remaining = size - names_ofs;
+	count = 0;
+
+	FOR_EACH_VMA_OBJECT(vma, index, mmap, gate_vma) {
+		char *vma_cache;
+
+		if (!IS_KVADDR(vma))
+			continue;
+
+		vma_cache = fill_vma_cache(vma);
+		vm_start = ULONG(vma_cache + OFFSET(vm_area_struct_vm_start));
+		vm_end = ULONG(vma_cache + OFFSET(vm_area_struct_vm_end));
+		vm_file = ULONG(vma_cache + OFFSET(vm_area_struct_vm_file));
+		vm_pgoff = ULONG(vma_cache + OFFSET(vm_area_struct_vm_pgoff));
+
+		if (!vm_file)
+			continue;
+
+		file_buf = fill_file_cache(vm_file);
+		dentry = ULONG(file_buf + OFFSET(file_f_dentry));
+		if (dentry) {
+			fill_dentry_cache(dentry);
+			if (VALID_MEMBER(file_f_vfsmnt)) {
+				vfsmnt = ULONG(file_buf + OFFSET(file_f_vfsmnt));
+				get_pathname(dentry, buf, BUFSIZE, 1, vfsmnt);
+			} else {
+				get_pathname(dentry, buf, BUFSIZE, 1, 0);
+			}
+		}
+
+		/* get_pathname() fills at the end, move name down */
+		n = strlen(buf)*sizeof(char) + 1;
+		remaining -= n;
+		memmove(name_curpos, buf, n);
+		progressf("TIRTSAHHH FILE  ... %s  ... \n", name_curpos);
+		name_curpos += n;
+
+		*start_end_ofs++ = vm_start;
+		*start_end_ofs++ = vm_end;
+		*start_end_ofs++ = vm_pgoff;
+		count++;
+	}
+
+	/* Now we know exact count of files, can store it */
+	data[0] = count;
+	data[1] = size;
+
+	/*
+	 * Count usually is less than map_count,
+	 * we need to move filenames down.
+	 */
+	n = map_count - count;
+	if (n != 0) {
+		unsigned shift_bytes = n * 3 * sizeof(data[0]);
+		memmove(name_base - shift_bytes, name_base,
+			name_curpos - name_base);
+		name_curpos -= shift_bytes;
+	}
+
+	size = name_curpos - (char *)data;
+	fill_note(memnote, "CORE", NT_FILE, size, data);
+}
 
 static int uvtop_quiet(ulong vaddr, physaddr_t *paddr)
 {
