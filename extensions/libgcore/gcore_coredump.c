@@ -996,7 +996,6 @@ fill_files_note(struct elf_note_info *info, struct task_context *tc,
 		n = strlen(buf)*sizeof(char) + 1;
 		remaining -= n;
 		memmove(name_curpos, buf, n);
-		progressf("TIRTSAHHH FILE  ... %s  ... \n", name_curpos);
 		name_curpos += n;
 
 		*start_end_ofs++ = vm_start;
