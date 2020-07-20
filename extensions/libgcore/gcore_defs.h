@@ -34,6 +34,8 @@
 
 #define ELF_CORE_EFLAGS 0
 
+#define MAX_FILE_NOTE_SIZE (4*1024*1024)
+
 #ifdef X86_64
 #define ELF_EXEC_PAGESIZE 4096
 

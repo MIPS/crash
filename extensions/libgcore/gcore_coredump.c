@@ -954,8 +954,8 @@ fill_files_note(struct elf_note_info *info, struct task_context *tc,
 	size = count * 64;
 	names_ofs = (2 + 3 * count) * sizeof(data[0]);
 
-	if (size >= ELF_EXEC_PAGESIZE) /* paranoia check */
-		error(FATAL, "Size required for file_note is too big.\n");
+	if (size >= MAX_FILE_NOTE_SIZE) /* paranoia check */
+		error(FATAL, "Size (%lu) required for file_note is too big.\n", size);
 	size = PAGE_ALIGN(size);
 	data = (ulong *)GETBUF(size);
 	BZERO(data, size);
