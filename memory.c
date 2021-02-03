@@ -401,7 +401,10 @@ vm_init(void)
 	STRUCT_SIZE_INIT(vmap_area, "vmap_area");
 	if (VALID_MEMBER(vmap_area_va_start) &&
 	    VALID_MEMBER(vmap_area_va_end) &&
+#if  0
+	    /* Linux 5.10 doesn't have vmap_area_flags */
 	    VALID_MEMBER(vmap_area_flags) &&
+#endif
 	    VALID_MEMBER(vmap_area_list) &&
 	    VALID_MEMBER(vmap_area_vm) &&
 	    kernel_symbol_exists("vmap_area_list"))
@@ -8742,9 +8745,12 @@ dump_vmap_area(struct meminfo *vi)
 		readmem(ld->list_ptr[i], KVADDR, vmap_area_buf,
                         SIZE(vmap_area), "vmap_area struct", FAULT_ON_ERROR); 
 
+#if 0
+		/* Linux 5.10 doesn't have vmap_area_flags */
 		flags = ULONG(vmap_area_buf + OFFSET(vmap_area_flags));
 		if (flags != VM_VM_AREA)
 			continue;
+#endif
 		start = ULONG(vmap_area_buf + OFFSET(vmap_area_va_start));
 		end = ULONG(vmap_area_buf + OFFSET(vmap_area_va_end));
 		vm_struct = ULONG(vmap_area_buf + OFFSET(vmap_area_vm));
