@@ -4724,6 +4724,10 @@ retry:
 			    !IN_MODULE_PERCPU(value, lm)) 
 				continue;       
 
+			/* Ignore .L* labels */
+			if (sp->name[0] == '.' && sp->name[1] == 'L')
+				continue;
+
 			if (value == sp->value) {
 				if (MODULE_END(sp) || MODULE_INIT_END(sp))
 					break;
